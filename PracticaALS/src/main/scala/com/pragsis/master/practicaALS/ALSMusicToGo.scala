@@ -11,7 +11,6 @@ import org.apache.spark.streaming.StreamingContext._
 import org.apache.spark.streaming.Seconds
 
 
-
 class ALSMusicToGo {
   
   def main(args: Array[String]) {
@@ -28,9 +27,16 @@ class ALSMusicToGo {
       val ssc = new StreamingContext(conf,Seconds(1)) // 1 second ??
       
       // Load and parse the data
-      val data = sc.textFile("/home/cloudera/")
-      val ratings = data.map(_.split(',') match { case Array(user, item, rate) => Rating(user.toInt, item.toInt, rate.toDouble)
+      val data = sc.textFile("/home/cloudera/Desktop/Practica2/usersha1-artmbid-artname-plays.tsv")
+      val ratings = data.map(_.split('\t') match { 
+        case Array(user, artist, rate) => (artist.toInt, rate.toDouble) //.map(words=>(words(0),words(1),words(2))
       })
+      
+      // converse ratings doubles into range 0..5 stars
+      val ratingsMax = ratings.map{_.swap}.sortByKey(false).map(_.swap).takeOrdered(0)
+      val ratingsMin = ratings.map{_.swap}.sortByKey(false).map(_.swap).takeOrdered(ratings.count().toInt)
+      
+      ratings.foreach(convertRate(r))
       
       // split the data in train, validation and test
       val   
@@ -56,8 +62,6 @@ class ALSMusicToGo {
         err * err
       }.mean()
       println("Mean Squared Error = " + MSE)
-      
-
       
       // set to 0 before loop
       val numPlays = 0
