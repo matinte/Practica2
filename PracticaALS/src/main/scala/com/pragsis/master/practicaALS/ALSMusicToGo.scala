@@ -33,6 +33,7 @@ object ALSMusicToGo {
 				}
 
 		val sc = new SparkContext(conf)
+		recommendArtists()
 	}
 	
 	
@@ -50,13 +51,13 @@ object ALSMusicToGo {
 	  val storedModel = getModel(sc,false)
 		
 		//2- load TEST_DATASET and filter by userid
-	  val test = CompareModels.loadDataset(sc, INPUT_TEST).filter(x=>x.user.hashCode()!=userid.hashCode())
+	  val test = CompareModels.loadDataset(sc, INPUT_TEST).filter(x=>x.user.hashCode()==userid.hashCode())
  
 		//3- ratesAndPreds for all users in test
 		val usersArtists = test.map { case Rating(user, artist, rate) =>  (user, artist) }
 		
 		//4- predict with model
-	  val artistsRecommended = storedModel.predict(usersArtists).sortBy(r=>r.rating,false).take(10).foreach(println)
+	  val artistsRecommended = storedModel.predict(usersArtists).sortBy(r=>r.rating,false).take(10) //.foreach(println)
 	  
 	  //5- check if artist not in user playlist
 		
