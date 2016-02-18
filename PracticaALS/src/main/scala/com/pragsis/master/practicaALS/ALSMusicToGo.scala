@@ -14,10 +14,10 @@ import org.apache.spark.mllib.recommendation.Rating
 
 object ALSMusicToGo {
 
+
 	var INPUT_TEST = "/media/david/Elements/Practica2/ratings/test"
 	var INPUT_TRAINING = "/media/david/Elements/Practica2/ratings/training"
-  var MODEL_PATH = "/home/cloudera/practica2/als/finalmodel"
-//  var STORED_MODEL = new MatrixFactorizationModel(0,null,null)
+	var MODEL_PATH = "/home/cloudera/practica2/als/finalmodel"
 
 	
 	def main(args: Array[String]) {
@@ -63,5 +63,6 @@ object ALSMusicToGo {
 	}
 		
 }      
+
 
 

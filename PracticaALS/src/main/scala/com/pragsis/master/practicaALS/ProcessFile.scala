@@ -8,23 +8,33 @@ object ProcessFile {
 
   def main(args: Array[String]): Unit = {
     // configure Spark Context
-    val sparkConf = new SparkConf().setMaster("local[2]").setAppName("Music To Go")
-    val sc = new SparkContext(sparkConf)
+
+    var INPUT_FILE="/home/david/Pragsis/lastfm-dataset-360K/usersha1-artmbid-artname-plays.tsv"
+    var OUTPUT_FILE="/home/david/Pragsis/Practica2/ratings"
+
+
+    val sparkConf = new SparkConf().setAppName("MusicToGo")
+
     val MAX_EXPLICIT_RATING = 5.0
-    
-    val file = sc.textFile("/home/cloudera/Desktop/Practica1/dataset_practico1/lastfm-dataset-360K/usersha1-artmbid-artname-plays.tsv")
 
-    val testFile = file.randomSplit(Array(0.01,0.99),0L)
+    // Se comprueba ejecucion en local
+    if(args.length == 0 ){
+      sparkConf.setMaster("local[4]")
+    }else{
+      INPUT_FILE = args(0)
+      OUTPUT_FILE = args(1)
+    }
 
-    val maximos = testFile(0).map(linea => {
+    val sc = new SparkContext(sparkConf)
+
+    // lectura de fichero
+    val file = sc.textFile(INPUT_FILE)
+
+    // Calculo de los maximos por usuario
+    val maximos = file.map(linea => {
       val campos = linea.split('\t')
-      try{
-        val plays = Integer.parseInt(campos(3).replaceFirst("^0+(?!$)",""))
-        (campos(0),plays)
-      }catch{
-        case e: Exception => (campos(1),1)
-      }
-
+      val plays = Integer.parseInt(campos(3).trim.replaceFirst("^0+(?!$)",""))
+      (campos(0).trim,plays)
     }).reduceByKey((acc,valor)=>{
       if(valor > acc){
         valor
@@ -34,29 +44,27 @@ object ProcessFile {
     })
 
 
-    val usuarios = testFile(0).map(linea=>{
+    // Obtencion de rdd con los usurios, grupos y numeros de reproducciones
+    val usuarios = file.map(linea=>{
       val campos = linea.split('\t')
-      try{
-        val plays = Integer.parseInt(campos(3).replaceFirst("^0+(?!$)",""))
-        (campos(0),(campos(2),plays))
-      }catch{
-        case e: Exception => (campos(1),(campos(2),1))
-      }
+      val plays = Integer.parseInt(campos(3).trim.replaceFirst("^0+(?!$)",""))
+      (campos(0).trim,(campos(2).trim,plays))
     })
 
+    // join
     val total = usuarios.join(maximos)
 
+    // calculo de los ratings por usuario
     val ratings = total.map(data=>{
       val rate = (data._2._1._2*MAX_EXPLICIT_RATING)/data._2._2
       (data._1,(data._2._1._1,rate.toDouble))
     }).sortByKey(false).map(tupla=>{
-      tupla._1+";"+tupla._2._1+";"+tupla._2._2
-      //Rating(tupla._1.toInt, tupla._2._1.toInt, tupla._2._2.toDouble)
+      // Se emite nombreUsurio;idUsuario;nombreGrupo;idGrupo;nota
+      tupla._1+":##:"+tupla._1.hashCode+":##:"+tupla._2._1+":##:"+tupla._2._1.hashCode+":##:"+tupla._2._2
     })
 
-    ratings.saveAsTextFile("/home/cloudera/Desktop/Practica2/ratings")
-
-
+    // Escritura a fichero
+    ratings.saveAsTextFile(OUTPUT_FILE)
 
   }
   
