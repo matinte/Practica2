@@ -15,8 +15,9 @@ import org.apache.spark.rdd.RDD
 
 object CompareModels {
 
+	case class DatosUsuario(nombreUsuario:String,idUsuario:Int,nombreGrupo:String,idGrupo:Int,rating:Double)
   
-  def loadDataset(sc: SparkContext, path: String):RDD[Rating]={
+  def loadDatasetRatings(sc: SparkContext, path: String):RDD[Rating]={
 
 		val ratings = sc.textFile(path).map(line=> {
 							    val array = line.split(":##:")
@@ -31,11 +32,28 @@ object CompareModels {
 								  }	
 		        }) 
 		 ratings       
-  }  
-    
+  }
+
+	def loadDatasetDatos(sc: SparkContext, path: String):RDD[DatosUsuario]={
+
+		val ratings = sc.textFile(path).map(line=> {
+			val array = line.split(":##:")
+			try {
+				DatosUsuario(array(0),array(1).toInt,array(2),array(3).toInt,array(4).toDouble)
+			} catch{
+				case e: Exception => {
+					println(e.getMessage)
+					println(line)
+					DatosUsuario("",0,"",0,0.0)
+				}
+			}
+		})
+		ratings
+	}
+
 	def calculateModel(sc: SparkContext, modelPath: String, pathTrain: String):MatrixFactorizationModel={
 			
-			val training = loadDataset(sc,pathTrain)
+			val training = loadDatasetRatings(sc,pathTrain)
 			
 			// train models with training dataset and different configuration parameters: lambda, rank, num_iterations
 			val model = ALS.train(training, 10, 10, 0.01) //(new ALS().setRank(10).setIterations(10).setLambda(0.01).(training))
@@ -46,9 +64,9 @@ object CompareModels {
 	def compareModel(sc: SparkContext, pathTrain: String, pathValid: String, pathTest: String):Unit={
 			
 	    
-			val training = loadDataset(sc,pathTrain)
-			val validation = loadDataset(sc,pathValid)
-			val test = loadDataset(sc,pathTest)
+			val training = loadDatasetRatings(sc,pathTrain)
+			val validation = loadDatasetRatings(sc,pathValid)
+			val test = loadDatasetRatings(sc,pathTest)
 
 			// train models with training dataset and different configuration parameters: lambda, rank, num_iterations
 			val model1 = ALS.train(training, 10, 10, 0.01) //(new ALS().setRank(10).setIterations(10).setLambda(0.01).(training))
