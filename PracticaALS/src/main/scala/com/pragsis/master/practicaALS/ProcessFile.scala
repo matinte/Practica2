@@ -8,11 +8,12 @@ object ProcessFile {
 
   def main(args: Array[String]): Unit = {
     // configure Spark Context
-
-    var INPUT_FILE="/media/david/Elements/lastfm-dataset-360K/usersha1-artmbid-artname-plays.tsv"
-    var OUTPUT_FILE_TEST="/home/david/Pragsis/Practica2/ratings/test"
-    var OUTPUT_FILE_TRAINING="/home/david/Pragsis/Practica2/ratings/training"
-    var OUTPUT_FILE_VALIDATION="/home/david/Pragsis/Practica2/ratings/validation"
+    
+    val LOCAL_PATH="/home/cloudera/Desktop/Practica2/"
+    var INPUT_FILE=LOCAL_PATH+"usersha1-artmbid-artname-plays.tsv"
+    var OUTPUT_FILE_TEST=LOCAL_PATH+"ratings/test"
+    var OUTPUT_FILE_TRAINING=LOCAL_PATH+"ratings/training"
+    var OUTPUT_FILE_VALIDATION=LOCAL_PATH+"ratings/validation"
 
 
     val sparkConf = new SparkConf().setAppName("MusicToGo")
@@ -66,8 +67,12 @@ object ProcessFile {
       // Se emite nombreUsurio;idUsuario;nombreGrupo;idGrupo;nota
       tupla._1+":##:"+tupla._1.hashCode+":##:"+tupla._2._1+":##:"+tupla._2._1.hashCode+":##:"+tupla._2._2
     })
+    
+    // trazas
+    println("Total number of ratings: " + ratings.count())
 
-    val partes = ratings.randomSplit(Array(0.6,0.2,0.2),0L)
+
+    val partes = ratings.randomSplit(Array(0.06,0.02,0.02),0L)
     // Escritura a fichero
     partes(0).saveAsTextFile(OUTPUT_FILE_TRAINING)
     partes(1).saveAsTextFile(OUTPUT_FILE_VALIDATION)

@@ -57,16 +57,17 @@ object CompareModels {
 			
 			// train models with training dataset and different configuration parameters: lambda, rank, num_iterations
 			val model = ALS.train(training, 10, 10, 0.01) //(new ALS().setRank(10).setIterations(10).setLambda(0.01).(training))
-			model.save(sc, modelPath)
-			model
+			val modelRun = (new ALS().setRank(10).setIterations(10).run(training))
+			modelRun.save(sc, modelPath)
+			modelRun
 			}
 	
 	def compareModel(sc: SparkContext, pathTrain: String, pathValid: String, pathTest: String):Unit={
 			
 	    
-			val training = loadDatasetRatings(sc,pathTrain)
-			val validation = loadDatasetRatings(sc,pathValid)
-			val test = loadDatasetRatings(sc,pathTest)
+			val training = loadDatasetRatings(sc,pathTrain).cache()
+			val validation = loadDatasetRatings(sc,pathValid).cache()
+			val test = loadDatasetRatings(sc,pathTest).cache()
 
 			// train models with training dataset and different configuration parameters: lambda, rank, num_iterations
 			val model1 = ALS.train(training, 10, 10, 0.01) //(new ALS().setRank(10).setIterations(10).setLambda(0.01).(training))
