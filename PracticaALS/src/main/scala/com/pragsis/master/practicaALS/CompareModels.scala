@@ -15,6 +15,7 @@ import org.apache.spark.rdd.RDD
 
 object CompareModels {
 
+  case class DatosUserPlays(nombreUsuario:String,idUsuario:Int,nombreGrupo:String,idGrupo:Int,plays:Integer)
 	case class DatosUsuario(nombreUsuario:String,idUsuario:Int,nombreGrupo:String,idGrupo:Int,rating:Double)
   
   def loadDatasetRatings(sc: SparkContext, path: String):RDD[Rating]={
@@ -51,13 +52,14 @@ object CompareModels {
 		ratings
 	}
 
-	def calculateModel(sc: SparkContext, modelPath: String, pathTrain: String):MatrixFactorizationModel={
+	def calculateModel(sc: SparkContext, modelPath: String, dataset: RDD[DatosUsuario]):MatrixFactorizationModel={
 			
-			val training = loadDatasetRatings(sc,pathTrain)
-			
+			//val training = loadDatasetRatings(sc,pathTrain)
+		  val datasetRating = dataset.map { case DatosUsuario(user, userid, artist, artistid, rate) => Rating(userid, artistid, rate) }	
+	  
 			// train models with training dataset and different configuration parameters: lambda, rank, num_iterations
-			val model = ALS.train(training, 10, 10, 0.01) //(new ALS().setRank(10).setIterations(10).setLambda(0.01).(training))
-			val modelRun = (new ALS().setRank(10).setIterations(10).run(training))
+			val model = ALS.train(datasetRating, 10, 10, 0.01) //(new ALS().setRank(10).setIterations(10).setLambda(0.01).(training))
+			val modelRun = (new ALS().setRank(10).setIterations(10).run(datasetRating))
 			modelRun.save(sc, modelPath)
 			modelRun
 			}
