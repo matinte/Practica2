@@ -138,7 +138,7 @@ object ALSMusicToGo{
     println("----------------------------------")
 
     // Escritura a Hbase
-    //listArtistsRecom.foreach({case (artist,rate)=> HBaseManager.saveToHBase(userid,artist,rate)} )
+    listArtistsRecom.foreach({case (artist,rate)=> HBaseManager.saveToHBase(userid,artist,rate)} )
 
   }
 
