@@ -1,88 +1,165 @@
 package com.pragsis.master.practicaALS
 
-import java.nio.file.{Files, Paths}
-import com.pragsis.master.practicaALS.CompareModels.DatosUsuario
+import java.io.FileWriter
+import java.nio.file.{Paths, Files}
+
 import org.apache.log4j.{Level, LogManager}
-import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.mllib.recommendation.MatrixFactorizationModel
 import org.apache.spark.rdd.RDD
-import org.apache.spark.mllib.recommendation.Rating
-import org.apache.spark.mllib.recommendation.Rating
-import org.apache.spark.mllib.recommendation.ALS
+import org.apache.spark.streaming.{Seconds, StreamingContext}
+import org.apache.spark.{Accumulator, SparkConf, SparkContext}
+import java.io.File
 import scala.collection.Map
 
-object ALSMusicToGo {
 
-  val LOCAL_PATH="/home/cloudera/Desktop/Practica2/"
-  val NUMBER_CORES = 2
-	var INPUT_TEST = LOCAL_PATH+"ratings/test"
-	var INPUT_TRAINING = LOCAL_PATH+"ratings/training"
-	var INPUT_STREAMING = LOCAL_PATH+"ratings/streaming"
-	var MODEL_PATH = LOCAL_PATH+"model"
+object ALSMusicToGo{
 
+  val MAX_PETICIONES = 5
+  val TIME =1
+  val LOCAL_PATH="/home/david/Pragsis/Practica2/"
+  val NUMBER_CORES = 8
+  val INPUT_TEST = LOCAL_PATH+"ratings/test"
+  val MODEL_PATH = LOCAL_PATH+"model"
+  val STREAMING_DATA_FILE = LOCAL_PATH+"streaming/data.txt"
 
-	def main(args: Array[String]) {
-		// configure Spark Context
-		val conf = new SparkConf().setAppName("CompareModels")
+  /**
+    * Main
+    * @param args
+    */
+  def main(args: Array[String]){
+    val conf = new SparkConf().setAppName("ALSMusicToGo")
+    conf.setMaster("local[4]")
+    val sc = new SparkContext(conf)
 
-		// Se comprueba ejecucion en local
-		if(args.length == 0 ){
-			conf.setMaster("local[" + NUMBER_CORES + "]")
-		}else{
-			INPUT_TEST = args(0)
-			MODEL_PATH = args(1)
-		}
-
-		val sc = new SparkContext(conf)
-		LogManager.getRootLogger.setLevel(Level.ERROR)
-
-		val data = CompareModels.loadDatasetDatos(sc,INPUT_TEST)
-		println("Total number of ratings: " + data.count())
-		println("Total number of groups rated: " + data.map(_.idGrupo).distinct().count())
-		println("Total number of users who rated artists: " + data.map(_.idUsuario).distinct().count())
-
-		// mapa idgrupo:nombregrupo
-	  val datosGrupos = data.map(dato=>(dato.idGrupo,dato.nombreGrupo)).reduceByKey((a:String,b:String)=>b).collectAsMap()
-		recommendArtists(sc,"e8c78120e88376654afac70051d09919676c1999",data,datosGrupos)
-
-	}
+    LogManager.getRootLogger.setLevel(Level.ERROR)
 
 
-	def getModel(sc: SparkContext, overrideModel: Boolean, isStreaming: Boolean):MatrixFactorizationModel={
-		if (Files.exists(Paths.get(MODEL_PATH)) && !overrideModel){
-			println("Cargando modelo de disco...")
-			MatrixFactorizationModel.load(sc, MODEL_PATH)
-		} else {
-			println("Generando modelo")
-			val test_dataset = ProcessFile.getCompleteData(sc,isStreaming)
-			val test_rating = ProcessFile.calculateRating(sc)
-		  CompareModels.calculateModel(sc,MODEL_PATH,test_rating)
-		}
-	}
+    // Declaracion acumulador
+    val accum = sc.accumulator(0,"ContadorPeticiones")
 
-	def recommendArtists(sc: SparkContext,userid: String,data: RDD[CompareModels.DatosUsuario], datosGrupos: Map[Int,String]){
+    val datosReproducciones = ProcessFile.calculateRating(sc,INPUT_TEST)
 
-		println("Buscando recomendaciones para usuario: "+userid)
-		//1- calcular modelo
-		val storedModel = getModel(sc,false, false)
+    // mapa idgrupo:nombregrupo
+    var datosGrupos = datosReproducciones.map(dato=>(dato.idGrupo,dato.nombreGrupo)).reduceByKey((a:String,b:String)=>b).collectAsMap()
 
-		// Grupos que escucha el usuario
-		val userGrupos = data.filter(datos=>datos.idUsuario == userid.hashCode).map(x=>x.idGrupo).collect()
-		println("Total number of groups rated by this user: " + userGrupos.distinct.length )
-		
-		// Artistas recomendados
-		val artistsRecommended = storedModel.recommendProducts(userid.hashCode,300)
+    // primera carga del modelo
+    var storedModel = getModel(sc,false,false)
 
-		val listArtistsRecom = artistsRecommended.filter(r=> !userGrupos.contains(r.product)).sortBy(- _.rating)
-		  .map(r=>(datosGrupos(r.product),r.rating)).take(10)
-		
-		println("List recommended: ") 
-		listArtistsRecom.foreach(println) 
-		listArtistsRecom.foreach({case (artist,rate)=> HBaseManager.saveToHBase(userid,artist,rate)} )
-		  
-	}
+    var ssc = defineStreaming(sc,accum,storedModel,datosGrupos)
+    println("Nuevo contexto stream cargado")
+    println("----------------------------------")
+    ssc.start()
 
-}      
+    while(true){
+      if(accum.value >= MAX_PETICIONES){
+
+        accum.setValue(0)
+        ssc.stop(false,true)
+
+        // generar el nuevo modelo
+        storedModel = getModel(sc,true,true)
+
+        println("Generando nuevo diccionario de grupos")
+        val reps = ProcessFile.calculateRating(sc,INPUT_TEST)
+        datosGrupos = datosReproducciones.map(dato=>(dato.idGrupo,dato.nombreGrupo)).reduceByKey((a:String,b:String)=>b).collectAsMap()
+
+        println("Borrando datos streaming anterior")
+        var file  = new File(STREAMING_DATA_FILE)
+        file.delete()
+
+        ssc = defineStreaming(sc,accum,storedModel,datosGrupos)
+        println("Nuevo contexto stream cargado")
+        println("----------------------------------")
+        ssc.start()
+      }
+    }
+  }
+
+  /**
+    * Definicion del comportamiento del stream
+    *
+    * @param sc
+    * @param accum
+    * @param modelo
+    * @return
+    */
+  def defineStreaming(sc: SparkContext, accum:Accumulator[Int], modelo:MatrixFactorizationModel,datosGrupos: Map[Int, String]): StreamingContext ={
+    val ssc = new StreamingContext(sc, Seconds(TIME))
+    val lines = ssc.socketTextStream("localhost", 9999)
+
+    lines.foreachRDD(rdd=>{
+      val lineas = rdd.collect().toIterator
+      if(rdd.count()>0){
+        lineas.foreach(linea=>{
+          // Aumentar acumulador
+          accum+=1
+
+          var campos = linea.split("::")
+          try{
+            recommendArtists(modelo,campos(0),datosGrupos)
+          }catch {
+            case e: Exception => {
+              println("No hay recomendaciones para el usuario "+campos(0))
+              println("----------------------------------")
+            }
+          }
+
+          // Escribir el fichero de streaming
+          val cadena=campos(0)+":##:"+campos(0).hashCode+":##:"+campos(3)+":##:"+campos(3).hashCode+":##:"+1
+          val writer = new FileWriter(STREAMING_DATA_FILE,true)
+          try{
+            writer.write(cadena+"\n")
+            writer.close()
+          }
+
+        })
+      }
+    })
+    ssc
+  }
 
 
+  /**
+    * Recomienda grupos para un determinado usuario
+    *
+    * @param modelo
+    * @param userid
+    * @param datosGrupos
+    */
+  def recommendArtists(modelo:MatrixFactorizationModel,userid: String, datosGrupos: Map[Int,String]){
+    // Artistas recomendados
+    val artistsRecommended = modelo.recommendProducts(userid.hashCode,10)
 
+    // Ordenar y obtenernombre del grupo
+    val listArtistsRecom = artistsRecommended.sortBy(- _.rating).map(r=>(datosGrupos(r.product),r.rating))
+
+    println("List recommended for "+userid)
+    listArtistsRecom.foreach(println)
+    println("----------------------------------")
+
+    // Escritura a Hbase
+    //listArtistsRecom.foreach({case (artist,rate)=> HBaseManager.saveToHBase(userid,artist,rate)} )
+
+  }
+
+
+  /**
+    * Generacion modelo de prediccion
+    * @param sc
+    * @param overrideModel
+    * @param isStreaming
+    * @return
+    */
+  def getModel(sc: SparkContext, overrideModel: Boolean, isStreaming: Boolean):MatrixFactorizationModel={
+    if (Files.exists(Paths.get(MODEL_PATH)) && !overrideModel){
+      println("Cargando modelo de disco...")
+      MatrixFactorizationModel.load(sc, MODEL_PATH)
+    } else {
+      println("Generando modelo")
+      val test_dataset = ProcessFile.getCompleteData(sc,isStreaming,INPUT_TEST,STREAMING_DATA_FILE)
+      val test_rating = ProcessFile.calculateRating(sc,INPUT_TEST)
+      CompareModels.calculateModel(sc,MODEL_PATH,test_rating)
+    }
+  }
+
+}
