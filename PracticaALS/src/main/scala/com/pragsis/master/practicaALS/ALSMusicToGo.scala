@@ -86,6 +86,7 @@ object ALSMusicToGo{
   def defineStreaming(sc: SparkContext, accum:Accumulator[Int], modelo:MatrixFactorizationModel,datosGrupos: Map[Int, String]): StreamingContext ={
     val ssc = new StreamingContext(sc, Seconds(TIME))
     val lines = ssc.socketTextStream("localhost", 9999)
+    var lista = List[String]()
 
     lines.foreachRDD(rdd=>{
       val lineas = rdd.collect().toIterator
@@ -95,21 +96,34 @@ object ALSMusicToGo{
           accum+=1
 
           var campos = linea.split("::")
-          try{
-            recommendArtists(modelo,campos(0),datosGrupos)
-          }catch {
-            case e: Exception => {
-              println("No hay recomendaciones para el usuario "+campos(0))
-              println("----------------------------------")
+
+          if(! lista.contains(campos(0))){
+            try{
+              lista = campos(0) :: lista
+              recommendArtists(modelo,campos(0),datosGrupos)
+            }catch {
+              case e: Exception => {
+                println("No hay recomendaciones para el usuario "+campos(0))
+                println("----------------------------------")
+              }
             }
+          }else{
+            println("No hay recomendaciones actualizadas para el usuario "+campos(0))
+            println("----------------------------------")
           }
 
+
           // Escribir el fichero de streaming
-          val cadena=campos(0)+":##:"+campos(0).hashCode+":##:"+campos(3)+":##:"+campos(3).hashCode+":##:"+1
-          val writer = new FileWriter(STREAMING_DATA_FILE,true)
           try{
+            val cadena=campos(0)+":##:"+campos(0).hashCode+":##:"+campos(3)+":##:"+campos(3).hashCode+":##:"+1
+            val writer = new FileWriter(STREAMING_DATA_FILE,true)
             writer.write(cadena+"\n")
             writer.close()
+          }catch {
+            case e: Exception => {
+              println("Error escribiendo fichero de streaming")
+              println("----------------------------------")
+            }
           }
 
         })
@@ -133,7 +147,7 @@ object ALSMusicToGo{
     // Ordenar y obtenernombre del grupo
     val listArtistsRecom = artistsRecommended.sortBy(- _.rating).map(r=>(datosGrupos(r.product),r.rating))
 
-    println("List recommended for "+userid)
+    println("Recomendaciones para usuario "+userid+":")
     listArtistsRecom.foreach(println)
     println("----------------------------------")
 

@@ -61,15 +61,15 @@ object CompareModels {
 		// train models with training dataset and different configuration parameters: lambda, rank, num_iterations
 		println("Entrenando modelo")
 		val model = ALS.train(datasetRating, 10, 10, 0.01) //(new ALS().setRank(10).setIterations(10).setLambda(0.01).(training))
-		val modelRun = (new ALS().setRank(10).setIterations(10).run(datasetRating))
+		//val modelRun = (new ALS().setRank(10).setIterations(10).run(datasetRating))
 		println("Borrando modelo anterior")
 		val path = new Path(modelPath)
 		val conf = new Configuration()
 		val fs = FileSystem.get(conf)
 		fs.delete(path,true)
 		println("Salvando modelo a disco")
-		modelRun.save(sc, modelPath)
-		modelRun
+		model.save(sc, modelPath)
+		model
 	}
 
 	/**
