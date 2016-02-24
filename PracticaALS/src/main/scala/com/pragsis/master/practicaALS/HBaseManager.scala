@@ -14,72 +14,53 @@ import org.apache.hadoop.hbase.client.Put
 import org.apache.hadoop.hbase.client.ResultScanner
 import org.apache.hadoop.hbase.client.Scan
 import org.apache.hadoop.hbase.client.Table
+import org.apache.hadoop.conf.Configuration
 
 object HBaseManager {
   
-  def connectDatabase():Table={
+  val TABLE_NAME = "Top10ArtistForUser"
+  
+  def connectDatabase():Configuration={
     //hbase config
     val hbaseConf = HBaseConfiguration.create()
     hbaseConf.set("hbase.zookeeper.quorum", "quickstart.cloudera")
     hbaseConf.set("hbase.zookeeper.property.clientPort", "2181")
     hbaseConf.setInt("timeout", 120000)
+    hbaseConf
+  }
+  
+  def getTable():Table={
+    val hbaseConf = connectDatabase()
     // hbase database connection
-    val connection = ConnectionFactory.createConnection(hbaseConf)
-    val table = connection.getTable(TableName.valueOf("recommendedArtist"))
-    table
+    var hbaseAdmin = new HBaseAdmin(hbaseConf)
+    if (!hbaseAdmin.tableExists(TABLE_NAME)) {
+      createTable(hbaseAdmin,hbaseConf)
+    } else {
+      val connection = ConnectionFactory.createConnection(hbaseConf)
+      connection.getTable(TableName.valueOf(TABLE_NAME))
+    }
   }
   
   def saveToHBase(userid: String, artist: String, rate: Double):Unit={
-    val table = connectDatabase()
+    val table = getTable()
     val put = new Put(Bytes.toBytes(userid))
     put.addColumn(Bytes.toBytes("artist"), Bytes.toBytes(artist), Bytes.toBytes(rate)) 
     table.put(put);  
   }
 
-  //********************************************************
-  // test HBase: connect, create, put, get
-  def main(args: Array[String]): Unit = {
-    val conf = new SparkConf().setAppName("HbaseSample").setMaster("local[4]")
-    val sc = new SparkContext(conf)
-
-    //hbase config
-    val hbaseConf = HBaseConfiguration.create()
-    hbaseConf.set("hbase.zookeeper.quorum", "quickstart.cloudera")
-    hbaseConf.set("hbase.zookeeper.property.clientPort", "2181")
-    hbaseConf.setInt("timeout", 120000)
-    
-    // hbase database connection
-    val connection = ConnectionFactory.createConnection(hbaseConf)
-    val table = connection.getTable(TableName.valueOf("recommendedArtist"))
-
-    // create database
-    val tableDesc = new HTableDescriptor(Bytes.toBytes("recommendedArtist"))
+  def createTable(hbaseAdmin: HBaseAdmin, hbaseConf: Configuration):Table={
+    // table description
+    val tableDesc = new HTableDescriptor(Bytes.toBytes(TABLE_NAME))
     // add userid CF
     val userColumnFamilyDesc = new HColumnDescriptor(Bytes.toBytes("userid"))
     tableDesc.addFamily(userColumnFamilyDesc)
     // add artist CF
     val artistsColumnFamilyDesc = new HColumnDescriptor(Bytes.toBytes("artist"))
     tableDesc.addFamily(artistsColumnFamilyDesc)
-    val admin = new HBaseAdmin(hbaseConf)
-    //admin.createTable(tableDesc)
-    
-    // put row
-    val userid = "001"
-    val put = new Put(Bytes.toBytes(userid))
-    //Bytes.toBytes("cf"), Bytes.toBytes("a"), Bytes.toBytes(record)
-    put.addColumn(Bytes.toBytes("artist"), Bytes.toBytes("David Bowie"), Bytes.toBytes("10")) 
-    put.addColumn(Bytes.toBytes("artist"), Bytes.toBytes("Red Hot Chili Peppers"), Bytes.toBytes("5"))
-    put.addColumn(Bytes.toBytes("artist"), Bytes.toBytes("Nirvana"), Bytes.toBytes("15"))
-    table.put(put);
-    
-    // get row  
-    val get = new Get(Bytes.toBytes(userid))
-    val row = table.get(get)
-    val value = row.getValue(Bytes.toBytes("artist"), Bytes.toBytes("Nirvana"))
-    val valueStr = Bytes.toString(value)
-    val scanner = table.getScanner(new Scan());
-    
-    // print row
-    println(userid + ": " + valueStr)
-  }
+    hbaseAdmin.createTable(tableDesc)
+    // return table
+    val connection = ConnectionFactory.createConnection(hbaseConf)
+    connection.getTable(TableName.valueOf(TABLE_NAME))
+   }
+  
 }  

@@ -14,13 +14,19 @@ import scala.collection.Map
 
 object ALSMusicToGo{
 
-  val MAX_PETICIONES = 5
-  val TIME =1
-  val LOCAL_PATH="/home/david/Pragsis/Practica2/"
-  val NUMBER_CORES = 8
+  // paths
+  val LOCAL_PATH="/home/miguel/Escritorio/Practica2/"
   val INPUT_TEST = LOCAL_PATH+"ratings/test"
+  val INPUT_TRAIN = LOCAL_PATH+"ratings/training"
+  val INPUT_VALIDATION = LOCAL_PATH+"ratings/validation"
   val MODEL_PATH = LOCAL_PATH+"model"
   val STREAMING_DATA_FILE = LOCAL_PATH+"streaming/data.txt"
+  
+  // global variables
+  val MAX_PETICIONES = 5
+  val TIME =1
+  val NUMBER_CORES = 8
+  var RANK = 0
 
   /**
     * Main
@@ -33,18 +39,27 @@ object ALSMusicToGo{
 
     LogManager.getRootLogger.setLevel(Level.ERROR)
 
-
     // Declaracion acumulador
     val accum = sc.accumulator(0,"ContadorPeticiones")
 
+    // calculamos ratins de dataset test 
     val datosReproducciones = ProcessFile.calculateRating(sc,INPUT_TEST)
 
     // mapa idgrupo:nombregrupo
     var datosGrupos = datosReproducciones.map(dato=>(dato.idGrupo,dato.nombreGrupo)).reduceByKey((a:String,b:String)=>b).collectAsMap()
 
+    // comparamos modelos
+    val bestModel = CompareModels.compareModel(sc, INPUT_TRAIN, INPUT_VALIDATION, INPUT_TEST) 
+    
     // primera carga del modelo
-    var storedModel = getModel(sc,false,false)
-
+    RANK = bestModel.rank // se almacena el rank del mejor modelo
+    var storedModel = getModel(sc,false,false,RANK)
+    
+    println("Recomendar grupos para usuario: b2d47bbf36f17961ccea17d40e98c7b3c6c1fcc2")
+    recommendArtists(storedModel,"b2d47bbf36f17961ccea17d40e98c7b3c6c1fcc2",datosGrupos)  
+    
+    println("----------------------------------")    
+    println("Streaming...")
     var ssc = defineStreaming(sc,accum,storedModel,datosGrupos)
     println("Nuevo contexto stream cargado")
     println("----------------------------------")
@@ -57,7 +72,7 @@ object ALSMusicToGo{
         ssc.stop(false,true)
 
         // generar el nuevo modelo
-        storedModel = getModel(sc,true,true)
+        storedModel = getModel(sc,true,true,RANK)
 
         println("Generando nuevo diccionario de grupos")
         val reps = ProcessFile.calculateRating(sc,INPUT_TEST)
@@ -164,15 +179,15 @@ object ALSMusicToGo{
     * @param isStreaming
     * @return
     */
-  def getModel(sc: SparkContext, overrideModel: Boolean, isStreaming: Boolean):MatrixFactorizationModel={
+  def getModel(sc: SparkContext, overrideModel: Boolean, isStreaming: Boolean, rank: Integer):MatrixFactorizationModel={
     if (Files.exists(Paths.get(MODEL_PATH)) && !overrideModel){
       println("Cargando modelo de disco...")
       MatrixFactorizationModel.load(sc, MODEL_PATH)
     } else {
-      println("Generando modelo")
+      println("Generando modelo...")
       val test_dataset = ProcessFile.getCompleteData(sc,isStreaming,INPUT_TEST,STREAMING_DATA_FILE)
       val test_rating = ProcessFile.calculateRating(sc,INPUT_TEST)
-      CompareModels.calculateModel(sc,MODEL_PATH,test_rating)
+      CompareModels.calculateModel(sc,MODEL_PATH,test_rating,rank)
     }
   }
 
