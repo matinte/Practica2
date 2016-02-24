@@ -16,7 +16,7 @@ object ALSMusicToGo{
 
   val MAX_PETICIONES = 5
   val TIME =1
-  val LOCAL_PATH="/home/david/Pragsis/Practica2/"
+  val LOCAL_PATH="/home/cloudera/Desktop/Practica2/"
   val NUMBER_CORES = 8
   val INPUT_TEST = LOCAL_PATH+"ratings/test"
   val MODEL_PATH = LOCAL_PATH+"model"

@@ -48,6 +48,10 @@ object CompareModels {
 
 	/**
 		* Calcula un modelo de prediccion y lo salva en disco, borrando el modelo anterior
+		* Usamos mejores rank, numero iteraciones y lambda btenidos en método compareModels(): 
+		* rank = 10
+		* num_iteraciones = 10
+		* lambda = 10
 		* @param sc
 		* @param modelPath
 		* @param dataset
@@ -55,13 +59,11 @@ object CompareModels {
     */
 	def calculateModel(sc: SparkContext, modelPath: String, dataset: RDD[DatosUsuario]):MatrixFactorizationModel={
 
-		//val training = loadDatasetRatings(sc,pathTrain)
 		val datasetRating = dataset.map { case DatosUsuario(user, userid, artist, artistid, rate) => Rating(userid, artistid, rate) }
 
-		// train models with training dataset and different configuration parameters: lambda, rank, num_iterations
 		println("Entrenando modelo")
-		val model = ALS.train(datasetRating, 10, 10, 0.01) //(new ALS().setRank(10).setIterations(10).setLambda(0.01).(training))
-		//val modelRun = (new ALS().setRank(10).setIterations(10).run(datasetRating))
+		// usamos los parametros con mejores valores obtenidos en compareModels
+		val model = ALS.train(datasetRating, 10, 10, 0.01) 
 		println("Borrando modelo anterior")
 		val path = new Path(modelPath)
 		val conf = new Configuration()
@@ -81,19 +83,25 @@ object CompareModels {
     */
 	def compareModel(sc: SparkContext, pathTrain: String, pathValid: String, pathTest: String):Unit={
 
-		val training = loadDatasetRatings(sc,pathTrain).cache()
-		val validation = loadDatasetRatings(sc,pathValid).cache()
-		val test = loadDatasetRatings(sc,pathTest).cache()
+	  // calculate rating for each part and match to Rating data
+	  val training_rating = ProcessFile.calculateRating(sc,pathTrain).map { case DatosUsuario(user, userid, artist, artistid, rate) => Rating(userid, artistid, rate) }
+		val validation_rating = ProcessFile.calculateRating(sc,pathValid).map { case DatosUsuario(user, userid, artist, artistid, rate) => Rating(userid, artistid, rate) }
+		val test_rating = ProcessFile.calculateRating(sc,pathTest).map { case DatosUsuario(user, userid, artist, artistid, rate) => Rating(userid, artistid, rate) }
+		
+		// cache datasets
+		val datasetTrain = training_rating.cache()
+	  val datasetValidation = validation_rating.cache()
+	  val datasetTest = test_rating.cache()
 
 		// train models with training dataset and different configuration parameters: lambda, rank, num_iterations
-		val model1 = ALS.train(training, 10, 10, 0.01) //(new ALS().setRank(10).setIterations(10).setLambda(0.01).(training))
-		val model2 = ALS.train(training, 20, 10, 0.01) //(new ALS().setRank(20).setIterations(10).setLambda(0.01).run(training))
-		val model3 = ALS.train(training, 30, 10, 0.01) //(new ALS().setRank(30).setIterations(10).setLambda(0.01).run(training))
+		val model1 = ALS.train(datasetTrain, 10, 10, 0.01) 
+		val model2 = ALS.train(datasetTrain, 10, 10, 0.1) 
+		val model3 = ALS.train(datasetTrain, 5, 10, 0.1) 
 
 		// test with validation dataset
-		val usersArtists = validation.map { case Rating(user, artist, rate) =>  (user, artist) }
+		val usersArtists = datasetValidation.map { case Rating(user, artist, rate) =>  (user, artist) }
 		//
-		val ratesAndPreds = validation.map { case Rating(user, artist, rate) => ((user, artist), rate)}
+		val ratesAndPreds = datasetValidation.map { case Rating(user, artist, rate) => ((user, artist), rate)}
 
 		// evaluate each model on validation dataset
 		val predictions1 = model1.predict(usersArtists).map { case Rating(user, artist, rate) =>  ((user, artist), rate) }
@@ -101,7 +109,7 @@ object CompareModels {
 		val predictions3 = model3.predict(usersArtists).map { case Rating(user, artist, rate) =>  ((user, artist), rate) }
 
 
-		//
+		// join rates and predictions
 		val joinRatesAndPred1 = ratesAndPreds.join(predictions1)
 		val MSE1 = joinRatesAndPred1.map { case ((user, artist), (r1, r2)) =>
 			val err = (r1 - r2)
@@ -120,14 +128,14 @@ object CompareModels {
 			err * err
 		}.mean()
 
-		//			println("Mean Squared Error predictions1= " + MSE1)
-		//			println("Mean Squared Error predictions2= " + MSE2)
-		//			println("Mean Squared Error predictions3= " + MSE3)
+		println("Mean Squared Error predictions1= " + MSE1)
+		println("Mean Squared Error predictions2= " + MSE2)
+		println("Mean Squared Error predictions3= " + MSE3)
 
 		// evaluate with test dataset
 		val finalModel = model1 //********model1, model2, model3, ....
-		val usersArtistsTest = test.map { case Rating(user, artist, rate) =>  (user, artist) }
-		val ratesAndPredsTest = test.map { case Rating(user, artist, rate) => ((user, artist), rate)}
+		val usersArtistsTest = datasetTest.map { case Rating(user, artist, rate) =>  (user, artist) }
+		val ratesAndPredsTest = datasetTest.map { case Rating(user, artist, rate) => ((user, artist), rate)}
 		val finalPred = finalModel.predict(usersArtistsTest).map { case Rating(user, artist, rate) =>  ((user, artist), rate) }
 		val joinRatesAndFinalPred = ratesAndPredsTest.join(finalPred)
 		val MSE_final = joinRatesAndFinalPred.map { case ((user, artist), (r1, r2)) =>
