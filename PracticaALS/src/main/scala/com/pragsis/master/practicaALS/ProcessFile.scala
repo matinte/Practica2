@@ -12,7 +12,7 @@ import org.apache.spark.{SparkConf, SparkContext}
 object ProcessFile {
 
   val MAX_EXPLICIT_RATING = 10.0 // --> se utiliza el mismo valor que el mejor rank en compareModel()
-  val LOCAL_PATH="/home/cloudera/Desktop/Practica2/"
+  val LOCAL_PATH="/home/david/Pragsis/Practica2/"
   var INPUT_FILE=LOCAL_PATH+"lastfm-dataset-360K/usersha1-artmbid-artname-plays.tsv"
   var INPUT_STREAMING = LOCAL_PATH+"ratings/streaming"
   var OUTPUT_FILE_TEST=LOCAL_PATH+"ratings/test"
@@ -40,7 +40,7 @@ object ProcessFile {
     val completeData = getCompleteData(sc,false,INPUT_FILE,INPUT_STREAMING)
 
     // split del fichero total con user,user.id,group,group.id,plays
-    val partes = completeData.randomSplit(Array(0.006,0.002,0.002),0L)
+    val partes = completeData.randomSplit(Array(0.6,0.2,0.2),0L)
 
     // Escritura a fichero
     partes(0).saveAsTextFile(OUTPUT_FILE_TRAINING)

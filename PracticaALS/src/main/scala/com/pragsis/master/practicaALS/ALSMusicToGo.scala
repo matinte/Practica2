@@ -1,14 +1,14 @@
 package com.pragsis.master.practicaALS
 
-import java.io.FileWriter
-import java.nio.file.{Paths, Files}
+import java.io.{File, FileWriter}
+import java.nio.file.{Files, Paths}
 
 import org.apache.log4j.{Level, LogManager}
 import org.apache.spark.mllib.recommendation.MatrixFactorizationModel
 import org.apache.spark.rdd.RDD
 import org.apache.spark.streaming.{Seconds, StreamingContext}
 import org.apache.spark.{Accumulator, SparkConf, SparkContext}
-import java.io.File
+
 import scala.collection.Map
 
 
@@ -16,14 +16,15 @@ object ALSMusicToGo{
 
   val MAX_PETICIONES = 5
   val TIME =1
-  val LOCAL_PATH="/home/cloudera/Desktop/Practica2/"
+  val LOCAL_PATH="/home/david/Pragsis/Practica2/"
   val NUMBER_CORES = 8
   val INPUT_TEST = LOCAL_PATH+"ratings/test"
   val MODEL_PATH = LOCAL_PATH+"model"
-  val STREAMING_DATA_FILE = LOCAL_PATH+"streaming/data.txt"
+  val STREAMING_DATA_FILE = LOCAL_PATH+"/data.txt"
 
   /**
     * Main
+    *
     * @param args
     */
   def main(args: Array[String]){
@@ -45,7 +46,7 @@ object ALSMusicToGo{
     // primera carga del modelo
     var storedModel = getModel(sc,false,false)
 
-    var ssc = defineStreaming(sc,accum,storedModel,datosGrupos)
+    var ssc = defineStreaming(sc,accum,storedModel,datosReproducciones,datosGrupos)
     println("Nuevo contexto stream cargado")
     println("----------------------------------")
     ssc.start()
@@ -61,13 +62,13 @@ object ALSMusicToGo{
 
         println("Generando nuevo diccionario de grupos")
         val reps = ProcessFile.calculateRating(sc,INPUT_TEST)
-        datosGrupos = datosReproducciones.map(dato=>(dato.idGrupo,dato.nombreGrupo)).reduceByKey((a:String,b:String)=>b).collectAsMap()
+        datosGrupos = reps.map(dato=>(dato.idGrupo,dato.nombreGrupo)).reduceByKey((a:String,b:String)=>b).collectAsMap()
 
         println("Borrando datos streaming anterior")
         var file  = new File(STREAMING_DATA_FILE)
         file.delete()
 
-        ssc = defineStreaming(sc,accum,storedModel,datosGrupos)
+        ssc = defineStreaming(sc,accum,storedModel,reps,datosGrupos)
         println("Nuevo contexto stream cargado")
         println("----------------------------------")
         ssc.start()
@@ -83,7 +84,7 @@ object ALSMusicToGo{
     * @param modelo
     * @return
     */
-  def defineStreaming(sc: SparkContext, accum:Accumulator[Int], modelo:MatrixFactorizationModel,datosGrupos: Map[Int, String]): StreamingContext ={
+  def defineStreaming(sc: SparkContext, accum:Accumulator[Int], modelo:MatrixFactorizationModel,ratings: RDD[CompareModels.DatosUsuario],datosGrupos: Map[Int, String]): StreamingContext ={
     val ssc = new StreamingContext(sc, Seconds(TIME))
     val lines = ssc.socketTextStream("localhost", 9999)
     var lista = List[String]()
@@ -100,7 +101,7 @@ object ALSMusicToGo{
           if(! lista.contains(campos(0))){
             try{
               lista = campos(0) :: lista
-              recommendArtists(modelo,campos(0),datosGrupos)
+              recommendArtists(modelo,campos(0),ratings,datosGrupos)
             }catch {
               case e: Exception => {
                 println("No hay recomendaciones para el usuario "+campos(0))
@@ -140,12 +141,18 @@ object ALSMusicToGo{
     * @param userid
     * @param datosGrupos
     */
-  def recommendArtists(modelo:MatrixFactorizationModel,userid: String, datosGrupos: Map[Int,String]){
+  def recommendArtists(modelo:MatrixFactorizationModel,userid: String, ratings: RDD[CompareModels.DatosUsuario],datosGrupos: Map[Int,String]){
     // Artistas recomendados
     val artistsRecommended = modelo.recommendProducts(userid.hashCode,10)
 
+    // Grupos escuchados por el usuario
+    val userGrupos = ratings.filter(datos=> datos.idUsuario==userid.hashCode).map(x=>x.idGrupo).collect()
+
+    // Eliminar grupos ya escuchados
+    val validArtists = artistsRecommended.filter(rating=> !userGrupos.contains(rating.product))
+
     // Ordenar y obtenernombre del grupo
-    val listArtistsRecom = artistsRecommended.sortBy(- _.rating).map(r=>(datosGrupos(r.product),r.rating))
+    val listArtistsRecom = validArtists.sortBy(- _.rating).map(r=>(datosGrupos(r.product),r.rating))
 
     println("Recomendaciones para usuario "+userid+":")
     listArtistsRecom.foreach(println)
@@ -159,6 +166,7 @@ object ALSMusicToGo{
 
   /**
     * Generacion modelo de prediccion
+    *
     * @param sc
     * @param overrideModel
     * @param isStreaming
